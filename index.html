@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>股债利差监测 · 沪深300 vs 10年期国债</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  :root{ --blue:#2f6fd0; --red:#c0392b; --orange:#e6a23c; --green:#67c23a; --purple:#8e44ad; --bg:#f6f7f9; --card:#fff; --text:#1f2329; --sub:#8a919c; }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);}
+  .wrap{max-width:1280px;margin:0 auto;padding:18px 22px 40px;}
+  header{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:14px;}
+  h1{font-size:22px;font-weight:700;}
+  h1 small{font-size:13px;font-weight:400;color:var(--sub);margin-left:10px;}
+  .badge{font-size:12px;padding:4px 12px;border-radius:20px;background:#fdf0e5;color:#d48806;border:1px solid #f5d9a8;}
+  .badge.ok{background:#edf9ee;color:#389e0d;border-color:#b7eb8f;}
+  .btn{margin-left:auto;font-size:13px;padding:6px 16px;border:1px solid #d0d5dd;border-radius:8px;background:#fff;cursor:pointer;color:var(--text);}
+  .btn:hover{border-color:var(--blue);color:var(--blue);}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:14px;}
+  .kpi{background:var(--card);border-radius:12px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,.05);}
+  .kpi .t{font-size:12px;color:var(--sub);margin-bottom:6px;}
+  .kpi .v{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;}
+  .kpi .s{font-size:12px;margin-top:4px;}
+  .signal{font-weight:600;}
+  .tabs{display:flex;gap:8px;margin-bottom:10px;}
+  .tab{padding:8px 20px;font-size:14px;border-radius:10px 10px 0 0;background:#e9ebef;cursor:pointer;color:#5a626e;border:1px solid transparent;border-bottom:none;}
+  .tab.active{background:var(--card);color:var(--blue);font-weight:600;box-shadow:0 -1px 3px rgba(0,0,0,.04);}
+  .panel{background:var(--card);border-radius:0 12px 12px 12px;padding:10px 6px 4px;box-shadow:0 1px 3px rgba(0,0,0,.05);}
+  #chart{width:100%;height:600px;}
+  footer{margin-top:16px;font-size:12px;color:var(--sub);line-height:1.9;}
+  footer b{color:#5a626e;}
+  .src{margin-top:6px;padding:8px 12px;background:#fff;border-radius:8px;border:1px dashed #e0e3e8;}
+  #status{font-size:12px;color:var(--sub);}
+  .gauge-wrap{display:flex;gap:22px;flex-wrap:wrap;padding:8px 10px 14px;}
+  .gauge-left{flex:1.35;min-width:340px;}
+  .gauge-right{flex:1;min-width:280px;display:flex;flex-direction:column;gap:12px;}
+  .zone-legend{display:flex;justify-content:center;gap:16px;font-size:12px;color:var(--sub);margin-top:2px;flex-wrap:wrap;}
+  .zone-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;}
+  .zone-hint{text-align:center;font-size:12px;color:var(--sub);margin-top:6px;}
+  .g-card{background:#f8f9fb;border-radius:12px;padding:16px 18px;}
+  .g-card .t{font-size:12px;color:var(--sub);margin-bottom:6px;}
+  .g-card .v{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums;}
+  .g-card .s{font-size:12px;color:var(--sub);margin-top:6px;}
+  .g-read{font-size:14px;line-height:1.9;color:#3d4451;}
+  .posbar{height:8px;background:#e4e7ec;border-radius:4px;margin:12px 0 6px;overflow:hidden;}
+  .posbar-in{height:100%;background:linear-gradient(90deg,#5b9bd5,#2f6fd0);width:0%;transition:width .8s ease;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>股债利差监测<small>股债利差 = 1/沪深300市盈率TTM − 10年期国债收益率</small></h1>
+    <span class="badge" id="badge">数据加载中…</span>
+    <button class="btn" id="refreshBtn">↻ 刷新数据</button>
+  </header>
+
+  <div class="kpis">
+    <div class="kpi"><div class="t">当前股债利差</div><div class="v" id="kSpread" style="color:var(--blue)">—</div><div class="s" id="kSpreadSub">百分点</div></div>
+    <div class="kpi"><div class="t">沪深300</div><div class="v" id="kClose" style="color:var(--red)">—</div><div class="s" id="kCloseSub">—</div></div>
+    <div class="kpi"><div class="t">市盈率 TTM</div><div class="v" id="kPe">—</div><div class="s" id="kPeSub">盈利收益率 <span id="kEy">—</span>%</div></div>
+    <div class="kpi"><div class="t">10年期国债收益率</div><div class="v" id="kY" style="color:var(--green)">—</div><div class="s">无风险利率</div></div>
+    <div class="kpi"><div class="t">历史分位数</div><div class="v" id="kPct">—</div><div class="s">利差自2005年以来</div></div>
+    <div class="kpi"><div class="t">当前信号</div><div class="v signal" id="kSig" style="font-size:19px">—</div><div class="s" id="kSigSub">基于2.5年布林通道</div></div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-v="0">📊 仪表盘</div>
+    <div class="tab" data-v="1">图一 · 利差与指数（大顶大底标注）</div>
+    <div class="tab" data-v="2">图二 · 布林通道（均线±2倍标准差）</div>
+  </div>
+  <div class="panel">
+    <div class="gauge-wrap" id="gaugeWrap">
+      <div class="gauge-left">
+        <div id="gaugeChart" style="width:100%;height:400px;"></div>
+        <div class="zone-legend">
+          <span><i style="background:#c0392b"></i>顶部区</span>
+          <span><i style="background:#e67e22"></i>偏贵</span>
+          <span><i style="background:#d4b106"></i>中性</span>
+          <span><i style="background:#5b9bd5"></i>便宜</span>
+          <span><i style="background:#2f6fd0"></i>底部区</span>
+        </div>
+        <div class="zone-hint">指针 = 股债利差自2005年以来的历史分位 · 越靠右股票越便宜（底部区），越靠左股票越贵（顶部区）</div>
+      </div>
+      <div class="gauge-right">
+        <div class="g-card">
+          <div class="t">当前股债利差</div>
+          <div class="v" id="gSpread" style="color:var(--blue)">—</div>
+          <div class="s">盈利收益率 <span id="gEy">—</span>% − 10Y国债 <span id="gY2">—</span>%</div>
+        </div>
+        <div class="g-card">
+          <div class="t">建议权益仓位参考</div>
+          <div class="v" id="gPos" style="color:var(--blue)">—</div>
+          <div class="posbar"><div class="posbar-in" id="gPosBar"></div></div>
+          <div class="s">按利差历史分位线性映射 · 仅供参考，不构成投资建议</div>
+        </div>
+        <div class="g-card">
+          <div class="t">一句话解读</div>
+          <div class="g-read" id="gRead">—</div>
+        </div>
+      </div>
+    </div>
+    <div id="chart"></div>
+  </div>
+
+  <footer>
+    <div class="src" id="status">正在尝试连接实时数据源…</div>
+    <p><b>方法说明：</b>股债利差 = 沪深300盈利收益率（1/PE-TTM）− 中债10年期国债到期收益率。利差处于历史高位 = 股票相对债券性价比高（底部区域）；利差处于历史低位 = 股票性价比低（顶部区域）。图二均线为2.5年滚动均值，上下轨为中轴±2倍标准差。</p>
+    <p><b>数据来源：</b>打开页面时自动依次尝试 ① 中证指数官网（日频收盘+滚动市盈率）② 中国货币网/中债（10年期国债收益率）③ 蛋卷基金（估值历史）④ 腾讯行情（日K/实时）。全部失败时使用内置月度数据（2005年至今，老月份为锚点估算，仅作参考）。自动更新：每次打开页面拉取，收盘后数据自动顺延。</p>
+    <p><b>风险提示：</b>本页面仅为数据可视化工具，不构成投资建议。历史规律不代表未来表现。</p>
+  </footer>
+</div>
+
+<script>
+/* ================= 内置月度数据（保底）：[日期, 收盘, PE-TTM(估), 10Y收益率%] ================= */
+const EMBED = {"monthly":[["2005-04-29",984.66,13.91,3.2],["2005-05-31",934.65,13.21,3.2],["2005-06-30",855.21,12.08,3.2],["2005-07-29",875.93,12.38,3.2],["2005-08-31",887.72,12.54,3.2],["2005-09-30",928.52,13.12,3.2],["2005-10-31",917.21,12.96,3.2],["2005-11-30",875.96,12.38,3.2],["2005-12-30",873.47,12.34,3.2],["2006-01-25",926.56,13.23,3.12],["2006-02-28",1013.42,14.47,3.12],["2006-03-31",1051.76,15.02,3.12],["2006-04-28",1061.96,15.17,3.12],["2006-05-31",1179.58,16.85,3.12],["2006-06-30",1364.18,19.48,3.12],["2006-07-31",1398.74,19.98,3.12],["2006-08-31",1292.71,18.46,3.12],["2006-09-29",1339.31,19.13,3.12],["2006-10-31",1420.36,20.29,3.12],["2006-11-30",1465.67,20.93,3.12],["2006-12-29",1719.28,24.55,3.12],["2007-01-31",2073.25,21.99,4.42],["2007-02-28",2350.6,24.93,4.42],["2007-03-30",2550.26,27.05,4.42],["2007-04-30",2793.96,29.63,4.42],["2007-05-31",3643.81,38.65,4.42],["2007-06-29",3953.1,41.93,4.42],["2007-07-31",3746.18,39.73,4.42],["2007-08-31",4479.3,47.51,4.42],["2007-09-28",5335.05,56.58,4.42],["2007-10-31",5703.28,60.49,4.3],["2007-11-30",5701.49,60.47,4.42],["2007-12-28",4714.92,50.01,4.42],["2008-01-31",5349.76,37.51,3.66],["2008-02-29",4623.62,32.42,3.66],["2008-03-31",4648.73,32.6,3.66],["2008-04-30",3776.27,26.48,3.66],["2008-05-30",4015.21,28.16,3.66],["2008-06-30",3600.23,25.25,3.66],["2008-07-31",2799.2,19.63,3.66],["2008-08-29",2786.12,19.54,3.66],["2008-09-26",2372.64,16.64,3.66],["2008-10-31",2206.56,15.47,3.66],["2008-11-28",1648.56,11.56,3.66],["2008-12-31",1823.77,12.79,2.72],["2009-01-23",1848.33,13.83,3.26],["2009-02-27",2052.44,15.36,3.26],["2009-03-31",2123.37,15.89,3.26],["2009-04-30",2519.89,18.86,3.26],["2009-05-27",2635.13,19.72,3.26],["2009-06-30",2798.93,20.95,3.26],["2009-07-31",3153.54,23.6,3.26],["2009-08-31",3754.22,28.09,3.26],["2009-09-30",2804.58,20.99,3.26],["2009-10-30",3078.75,23.04,3.26],["2009-11-30",3205.83,23.99,3.26],["2009-12-31",3507.56,26.25,3.26],["2010-01-29",3592.47,20.59,3.62],["2010-02-26",3198.23,18.33,3.62],["2010-03-31",3290.01,18.86,3.62],["2010-04-30",3349.88,19.2,3.62],["2010-05-31",3005.49,17.23,3.62],["2010-06-30",2755.28,15.8,3.62],["2010-07-30",2557.92,14.66,3.62],["2010-08-31",2868.28,16.44,3.62],["2010-09-30",2907.66,16.67,3.62],["2010-10-29",2965.65,17.0,3.62],["2010-11-30",3390.41,19.44,3.62],["2010-12-31",3127.26,17.93,3.62],["2011-01-31",3155.56,14.05,3.85],["2011-02-28",3083.49,13.73,3.85],["2011-03-31",3241.71,14.43,3.85],["2011-04-29",3227.56,14.37,3.85],["2011-05-31",3192.84,14.22,3.85],["2011-06-30",2996.08,13.34,3.85],["2011-07-29",3052.12,13.59,3.85],["2011-08-31",2969.11,13.22,3.85],["2011-09-30",2852.39,12.7,3.85],["2011-10-31",2588.35,11.53,3.85],["2011-11-30",2672.51,11.9,3.85],["2011-12-30",2596.15,11.56,3.85],["2012-01-31",2361.5,10.17,3.57],["2012-02-29",2458.23,10.58,3.57],["2012-03-30",2622.74,11.29,3.57],["2012-04-27",2449.21,10.54,3.57],["2012-05-31",2660.67,11.45,3.57],["2012-06-29",2633.6,11.34,3.57],["2012-07-31",2473.54,10.65,3.57],["2012-08-31",2332.13,10.04,3.57],["2012-09-28",2201.12,9.48,3.57],["2012-10-31",2291.96,9.87,3.57],["2012-11-30",2256.61,9.71,3.57],["2012-12-31",2136.7,9.2,3.57],["2013-01-31",2551.81,9.99,4.09],["2013-02-28",2677.19,10.48,4.09],["2013-03-29",2671.84,10.46,4.09],["2013-04-26",2486.43,9.73,4.09],["2013-05-31",2434.6,9.53,4.09],["2013-06-28",2605.97,10.2,4.4],["2013-07-31",2187.09,8.56,4.09],["2013-08-30",2206.0,8.63,4.09],["2013-09-30",2319.96,9.08,4.09],["2013-10-31",2406.42,9.42,4.09],["2013-11-29",2373.96,9.29,4.09],["2013-12-31",2423.97,9.49,4.09],["2014-01-30",2323.43,8.72,4.5],["2014-02-28",2187.34,8.21,3.83],["2014-03-31",2173.91,8.16,3.83],["2014-04-30",2143.72,8.04,3.83],["2014-05-30",2152.59,8.08,3.83],["2014-06-30",2157.64,8.1,4.15],["2014-07-31",2169.2,8.14,3.83],["2014-08-29",2341.23,8.78,3.83],["2014-09-30",2340.93,8.78,3.83],["2014-10-31",2460.87,9.23,3.83],["2014-11-28",2515.82,9.44,3.83],["2014-12-31",2825.61,10.6,3.6],["2015-01-30",3566.09,12.92,3.32],["2015-02-27",3360.19,12.18,3.32],["2015-03-31",3603.45,13.06,3.32],["2015-04-30",4057.5,14.71,3.32],["2015-05-29",4757.64,17.24,3.32],["2015-06-30",4862.76,17.62,3.6],["2015-07-31",4408.98,15.98,3.32],["2015-08-31",3766.07,13.65,3.32],["2015-09-30",3296.53,11.95,3.32],["2015-10-30",3324.98,12.05,3.32],["2015-11-30",3489.23,12.65,3.32],["2015-12-31",3562.32,12.91,3.32],["2016-01-29",3725.86,13.26,2.86],["2016-02-29",2939.04,10.46,2.86],["2016-03-31",2881.34,10.25,2.86],["2016-04-29",3213.67,11.43,2.86],["2016-05-31",3159.82,11.24,2.86],["2016-06-30",3172.96,11.29,2.86],["2016-07-29",3156.93,11.23,2.86],["2016-08-31",3196.43,11.37,2.86],["2016-09-30",3326.74,11.84,2.86],["2016-10-31",3265.36,11.62,2.7],["2016-11-30",3338.71,11.88,2.86],["2016-12-30",3543.96,12.61,2.86],["2017-01-26",3313.95,11.98,3.65],["2017-02-28",3390.93,12.26,3.65],["2017-03-31",3452.21,12.48,3.65],["2017-04-28",3476.42,12.57,3.65],["2017-05-31",3427.92,12.4,3.65],["2017-06-30",3485.22,12.6,3.65],["2017-07-31",3667.23,13.26,3.65],["2017-08-31",3738.74,13.52,3.65],["2017-09-29",3825.34,13.83,3.65],["2017-10-31",3910.11,14.14,3.65],["2017-11-30",4007.91,14.49,3.9],["2017-12-29",4003.56,14.48,3.65],["2018-01-31",4045.21,14.33,3.9],["2018-02-28",4276.34,15.15,3.51],["2018-03-30",3994.87,14.15,3.51],["2018-04-27",3897.01,13.8,3.51],["2018-05-31",3769.93,13.35,3.51],["2018-06-29",3789.67,13.42,3.51],["2018-07-31",3504.46,12.41,3.51],["2018-08-31",3530.03,12.5,3.51],["2018-09-28",3320.69,11.76,3.51],["2018-10-31",3361.56,11.91,3.51],["2018-11-30",3185.2,11.28,3.51],["2018-12-28",3260.69,11.55,3.51],["2019-01-31",3017.07,10.63,3.14],["2019-02-28",3225.73,11.36,3.14],["2019-03-29",3699.22,13.03,3.14],["2019-04-30",3901.17,13.74,3.14],["2019-05-31",3775.08,13.3,3.14],["2019-06-28",3640.61,12.82,3.14],["2019-07-31",3899.33,13.74,3.14],["2019-08-30",3819.32,13.45,3.14],["2019-09-30",3803.69,13.4,3.14],["2019-10-31",3818.59,13.45,3.14],["2019-11-29",3883.81,13.68,3.14],["2019-12-31",3835.51,13.51,3.14],["2020-01-23",4121.35,16.03,2.87],["2020-02-28",3639.91,14.16,2.87],["2020-03-31",3968.84,15.44,2.87],["2020-04-30",3682.3,14.32,2.5],["2020-05-29",3867.26,15.04,2.87],["2020-06-30",3901.73,15.18,2.87],["2020-07-31",4172.64,16.23,2.87],["2020-08-31",4735.9,18.42,2.87],["2020-09-30",4803.39,18.69,2.87],["2020-10-30",4663.61,18.14,2.87],["2020-11-30",4702.75,18.29,2.87],["2020-12-31",4963.13,19.31,2.87],["2021-01-29",5212.93,17.46,3.04],["2021-02-26",5356.85,17.94,3.04],["2021-03-31",5389.25,18.05,3.04],["2021-04-30",5059.94,16.95,3.04],["2021-05-31",5098.8,17.08,3.04],["2021-06-30",5320.47,17.82,3.04],["2021-07-30",5241.2,17.56,3.04],["2021-08-31",4794.82,16.06,3.04],["2021-09-30",4804.69,16.09,3.04],["2021-10-29",4915.73,16.47,3.04],["2021-11-30",4878.13,16.34,3.04],["2021-12-31",4831.89,16.18,3.04],["2022-01-28",4957.98,21.61,2.79],["2022-02-28",4638.58,20.22,2.79],["2022-03-31",4597.86,20.04,2.79],["2022-04-29",4198.82,18.3,2.79],["2022-05-31",3995.35,17.42,2.79],["2022-06-30",4086.62,17.81,2.79],["2022-07-29",4489.52,19.57,2.79],["2022-08-31",4160.65,18.14,2.79],["2022-09-30",4066.19,17.72,2.79],["2022-10-31",3806.56,16.59,2.79],["2022-11-30",3519.82,15.34,2.85],["2022-12-30",3921.3,17.09,2.79],["2023-01-31",3864.84,15.36,2.72],["2023-02-28",4170.13,16.57,2.72],["2023-03-31",4068.73,16.17,2.72],["2023-04-28",4059.62,16.13,2.72],["2023-05-31",4013.47,15.95,2.72],["2023-06-30",3788.59,15.05,2.72],["2023-07-31",3853.29,15.31,2.72],["2023-08-31",4009.18,15.93,2.72],["2023-09-28",3778.91,15.01,2.72],["2023-10-31",3678.93,14.62,2.72],["2023-11-30",3605.76,14.33,2.72],["2023-12-29",3494.22,13.88,2.72],["2024-01-31",3426.27,12.27,2.5],["2024-02-29",3202.26,11.47,2.11],["2024-03-29",3515.06,12.59,2.11],["2024-04-30",3551.58,12.72,2.11],["2024-05-31",3654.05,13.08,2.11],["2024-06-28",3577.38,12.81,2.11],["2024-07-31",3458.26,12.38,2.11],["2024-08-30",3443.14,12.33,2.11],["2024-09-30",3307.54,11.84,2.11],["2024-10-31",4450.37,15.94,2.11],["2024-11-29",3882.46,13.9,2.11],["2024-12-31",3909.7,13.3,1.7],["2025-01-27",3931.82,12.51,1.6],["2025-02-28",3844.7,12.24,1.78],["2025-03-31",3899.7,12.41,1.78],["2025-04-30",3770.57,12.0,1.78],["2025-05-30",3794.38,12.08,1.78],["2025-06-30",3833.46,12.2,1.78],["2025-07-31",3935.91,12.53,1.78],["2025-08-29",4069.93,12.95,1.78],["2025-09-30",4516.88,14.38,1.78],["2025-10-31",4662.11,14.84,1.78],["2025-11-28",4636.73,14.76,1.78],["2025-12-31",4539.19,14.45,1.78],["2026-01-30",4706.34,14.35,1.75],["2026-02-27",4710.65,14.32,1.75],["2026-03-31",4450.05,13.84,1.75],["2026-04-30",4807.31,14.61,1.75],["2026-05-29",4892.12,14.62,1.75],["2026-06-30",4979.43,14.76,1.75],["2026-07-31",4588.2,14.36,1.75],["2026-08-31",4625.09,14.53,1.75],["2026-09-30",4357.62,13.15,1.75],["2026-10-16",4170.61,12.88,1.656]]};
+
+/* ================= 状态 ================= */
+let RAW = { dates:[], close:[], pe:[], yld:[] };   // 当前使用的序列
+let DAILY_MODE = false;
+const $ = id => document.getElementById(id);
+const chart = echarts.init($('chart'));
+const gaugeChart = echarts.init($('gaugeChart'));
+
+const EVENTS = [
+  ["2007-10-16","2007大顶","top"],["2008-10-31","2008底","bot"],["2013-06-25","2013/6钱荒底","bot"],
+  ["2014-07-31","2014/7牛市起点","bot"],["2015-06-12","2015/6大顶","top"],["2016-01-28","2016/1底","bot"],
+  ["2019-01-04","2019/1底","bot"],["2020-03-23","2020/3疫情底","bot"],["2021-02-18","2021/2核心资产顶","top"],
+  ["2022-04-26","2022/4底","bot"],["2022-10-31","2022/10底","bot"],["2024-02-05","2024/2底","bot"],
+  ["2024-09-13","2024/9政策前夜","bot"],["2025-04-07","2025/4关税底","bot"]
+];
+const fmt = d => d;
+const toNum = v => { const n = parseFloat(v); return isFinite(n) ? n : null; };
+const pad2 = n => String(n).padStart(2,'0');
+function normDate(s){
+  if(!s) return null;
+  s = String(s).replace(/[^0-9]/g,'');
+  if(s.length>=8) return s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8);
+  return null;
+}
+
+/* ================= 数据源 ================= */
+function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
+
+async function fetchJSONP(url, timeout=12000){
+  return new Promise((res, rej)=>{
+    const cb = '_jp'+Math.random().toString(36).slice(2);
+    const s = document.createElement('script');
+    const timer = setTimeout(()=>{cleanup(); rej('timeout');}, timeout);
+    function cleanup(){ clearTimeout(timer); try{delete window[cb];}catch(e){} s.remove(); }
+    window[cb] = j => { cleanup(); res(j); };
+    s.onerror = ()=>{ cleanup(); rej('neterr'); };
+    s.src = url + (url.indexOf('?')>0?'&':'?') + 'callback=' + cb;
+    document.head.appendChild(s);
+  });
+}
+async function fetchText(url, timeout=20000, proxy=false){
+  const u = proxy ? 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url) : url;
+  const ctl = new AbortController(); const t = setTimeout(()=>ctl.abort(), timeout);
+  try{ const r = await fetch(u, {signal:ctl.signal}); if(!r.ok) throw new Error(r.status); return await r.text(); }
+  finally{ clearTimeout(t); }
+}
+
+/* ① 中证指数官网：日频 收盘 + 滚动市盈率 */
+async function srcCsindex(){
+  const t = todayStr().replace(/-/g,'');
+  const url = 'https://www.csindex.com.cn/csindex-home/perf/index-perf?indexCode=000300&startDate=20050101&endDate='+t;
+  let j = null;
+  try{ j = JSON.parse(await fetchText(url, 25000, false)); }
+  catch(e){ j = JSON.parse(await fetchText(url, 25000, true)); }
+  if(!j || !Array.isArray(j.data) || !j.data.length) throw new Error('csindex empty');
+  const out = [];
+  for(const r of j.data){
+    const d = normDate(r.tradeDate); const c = toNum(r.close); const p = toNum(r.peg);
+    if(d && c && p) out.push([d, c, p]);
+  }
+  if(out.length < 1000) throw new Error('csindex too few');
+  return out;
+}
+/* ② 中国货币网：10Y国债收益率（逐年请求累积） */
+async function srcChinamoney(){
+  const years = []; for(let y=2006; y<=new Date().getFullYear(); y++) years.push(y);
+  const map = {};
+  async function getY(y){
+    const url = 'https://www.chinamoney.com.cn/chinese/sddsintigy/?bondType=CYCC000&startDate='+y+'-01-01&endDate='+y+'-12-31&yieldType=0&termId=10.0';
+    let txt = null;
+    try{ txt = await fetchText(url, 15000, false); }catch(e){ try{ txt = await fetchText(url, 15000, true);}catch(e2){ return; } }
+    const doc = new DOMParser().parseFromString(txt, 'text/html');
+    const trs = doc.querySelectorAll('tr');
+    trs.forEach(tr=>{
+      const tds = tr.querySelectorAll('td');
+      if(tds.length >= 3){
+        const d = normDate(tds[0].textContent); const y10 = toNum(tds[2].textContent);
+        if(d && y10 !== null && y10 > 0.5 && y10 < 15) map[d] = y10;
+      }
+    });
+  }
+  await Promise.all(years.map(getY));
+  const arr = Object.keys(map).sort().map(d=>[d, map[d]]);
+  if(arr.length < 5) throw new Error('chinamoney too few: '+arr.length);
+  return arr;
+}
+/* ③ 蛋卷：估值历史（PE-TTM） */
+async function srcDanjuan(){
+  const urls = [
+    'https://danjuanapp.com/djapi/index_eva/pe_history/CSI300?day=6000',
+    'https://danjuanapp.com/djapi/index_eva/detail/CSI300?day=6000'
+  ];
+  for(const u of urls){
+    try{
+      const j = JSON.parse(await fetchText(u, 15000, false));
+      let items = (j.data && (j.data.items || j.data)) || [];
+      if(!Array.isArray(items) || !items.length) continue;
+      const out = [];
+      for(const it of items){
+        const d = normDate(it.date || it.trade_date); const p = toNum(it.pe || it.pe_ttm);
+        if(d && p && p>3 && p<100) out.push([d, p]);
+      }
+      if(out.length > 500) return out;
+    }catch(e){}
+  }
+  throw new Error('danjuan failed');
+}
+/* ④ 腾讯：全历史日K（收盘） + 实时（价+PE） */
+async function srcTencentDaily(){
+  const url = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh000300,day,2005-04-08,'+todayStr()+',6400,qfq';
+  let txt = null;
+  try{ txt = await fetchText(url, 20000, false); }catch(e){}
+  if(!txt){ try{ txt = await fetchText(url, 20000, true); }catch(e){} }
+  if(!txt) throw new Error('tencent net');
+  const m = txt.match(/\{[\s\S]*\}/);
+  const j = JSON.parse(m[0]);
+  const arr = (j.data && j.data.sh000300 && (j.data.sh000300.day || j.data.sh000300.qfqday)) || [];
+  const out = arr.map(r=>[r[0], toNum(r[2])]).filter(r=>r[1]);
+  if(out.length < 1000) throw new Error('tencent too few');
+  return out;
+}
+/* ================= 合并 ================= */
+function buildSeries(cs, tenc, dj, cm){
+  // date -> {close, pe, yld}
+  const M = {};
+  const put = (d, k, v) => { if(!M[d]) M[d]={}; if(v!=null && isFinite(v)) M[d][k]=v; };
+  (tenc||[]).forEach(r=>put(r[0],'close',r[1]));
+  (cs||[]).forEach(r=>{ put(r[0],'close',r[1]); put(r[0],'pe',r[2]); });
+  (dj||[]).forEach(r=>put(r[0],'pe',r[1]));
+  (cm||[]).forEach(r=>put(r[0],'yld',r[1]));
+  // 内置估算填充缺口
+  EMBED.monthly.forEach(r=>{ const d=r[0]; if(!M[d]) M[d]={}; if(M[d].close==null) M[d].close=r[1]; if(M[d].pe==null) M[d].pe=r[2]; if(M[d].yld==null) M[d].yld=r[3]; });
+  // 10Y收益率：非交易日用最近值前向填充
+  const dates = Object.keys(M).sort();
+  let lastY = null;
+  dates.forEach(d=>{ if(M[d].yld!=null) lastY=M[d].yld; else if(lastY!=null) M[d].yld=lastY; });
+  return dates.map(d=>({d, close:M[d].close, pe:M[d].pe, yld:M[d].yld})).filter(r=>r.close&&r.pe&&r.yld);
+}
+
+function toDaily(rows){
+  return { dates: rows.map(r=>r.d), close: rows.map(r=>r.close), pe: rows.map(r=>r.pe), yld: rows.map(r=>r.yld) };
+}
+
+/* ================= 指标计算 ================= */
+function calc(rows){
+  const n = rows.length;
+  const spread = rows.map(r => (100/r.pe) - r.yld);
+  const years = (new Date(rows[n-1].d) - new Date(rows[0].d)) / (365.25*864e5);
+  const W = Math.max(24, Math.round(n * 2.5 / Math.max(years, 2.5)));
+  const ma = [], up = [], lo = [];
+  for(let i=0;i<n;i++){
+    if(i < W){ ma.push(null); up.push(null); lo.push(null); continue; }
+    let s=0, s2=0;
+    for(let k=i-W+1;k<=i;k++){ s+=spread[k]; s2+=spread[k]*spread[k]; }
+    const m = s/W, sd = Math.sqrt(Math.max(s2/W - m*m, 0));
+    ma.push(m); up.push(m+2*sd); lo.push(m-2*sd);
+  }
+  const sorted = [...spread].sort((a,b)=>a-b);
+  const pct = sorted.findIndex(v=>v>=spread[n-1]) / n;
+  return { spread, ma, up, lo, pct: Math.min(Math.max(pct,0),1), W };
+}
+
+/* ================= 渲染 ================= */
+function renderGauge(curSpread, pct, sig, sigColor, last){
+  $('gaugeWrap').style.display='flex';
+  $('chart').style.display='none';
+  const pos = Math.round(pct*100);
+  $('gSpread').textContent = curSpread.toFixed(2) + ' 百分点';
+  $('gEy').textContent = (100/last.pe).toFixed(2);
+  $('gY2').textContent = last.yld.toFixed(2);
+  $('gPos').textContent = pos + '%';
+  $('gPosBar').style.width = pos + '%';
+  const READS = {
+    '顶部区域':'利差已跌破布林下轨：股票相对债券显著偏贵，历史上这类位置多对应大盘顶部区域——宜控制仓位、分批止盈、降低预期。',
+    '底部区域':'利差已突破布林上轨：股票相对债券显著便宜，历史上这类位置多对应大盘底部区域——属于长周期布局的舒适区，定投/分批买入的胜率和赔率都较好。',
+    '中性区间':'利差处于布林通道之内：股债性价比中性，缺乏大级别择时信号——建议维持均衡配置，跟随趋势，等待利差走向极值区。'
+  };
+  $('gRead').textContent = READS[sig] || READS['中性区间'];
+  gaugeChart.setOption({
+    series:[{
+      type:'gauge', startAngle:205, endAngle:-25, min:0, max:100, splitNumber:10,
+      radius:'108%', center:['50%','66%'],
+      axisLine:{ lineStyle:{ width:24, color:[[0.15,'#c0392b'],[0.4,'#e67e22'],[0.6,'#d4b106'],[0.85,'#5b9bd5'],[1,'#2f6fd0']] } },
+      pointer:{ length:'60%', width:5, itemStyle:{ color:'#2b2f36' } },
+      anchor:{ show:true, size:14, itemStyle:{ color:'#2b2f36' } },
+      axisTick:{ distance:-24, length:5, lineStyle:{ color:'rgba(255,255,255,.7)', width:1 } },
+      splitLine:{ distance:-24, length:24, lineStyle:{ color:'#fff', width:2 } },
+      axisLabel:{ distance:-34, color:'#9aa1ab', fontSize:10 },
+      title:{ offsetCenter:[0,'32%'], fontSize:17, fontWeight:600, color:'#1f2329' },
+      detail:{ valueAnimation:true, offsetCenter:[0,'58%'], fontSize:36, fontWeight:700, color:sigColor, formatter:v=>v.toFixed(1) },
+      data:[{ value:+(pct*100).toFixed(1), name:sig }]
+    }]
+  }, true);
+  setTimeout(()=>gaugeChart.resize(), 30);
+}
+
+function seriesPairs(dates, arr){ return dates.map((d,i)=> arr[i]==null? null : [d, +arr[i].toFixed(3)]); }
+
+function render(){
+  const rows = RAW.dates.map((d,i)=>({d, close:RAW.close[i], pe:RAW.pe[i], yld:RAW.yld[i]}));
+  const { spread, ma, up, lo, pct, W } = calc(rows);
+  const n = rows.length, last = rows[n-1];
+  const curSpread = spread[n-1], curUp = up[n-1], curLo = lo[n-1];
+
+  // KPI
+  $('kSpread').textContent = curSpread.toFixed(2);
+  $('kClose').textContent = last.close.toFixed(2);
+  $('kCloseSub').textContent = last.d + (DAILY_MODE?' 收盘':' 月末');
+  $('kPe').textContent = last.pe.toFixed(2);
+  $('kEy').textContent = (100/last.pe).toFixed(2);
+  $('kY').textContent = last.yld.toFixed(3) + '%';
+  $('kPct').textContent = (pct*100).toFixed(1) + '%';
+  let sig, sigColor, sigSub;
+  if(curUp!=null && curSpread > curUp){ sig='底部区域'; sigColor='var(--blue)'; sigSub='利差突破上轨，股票性价比极高'; }
+  else if(curLo!=null && curSpread < curLo){ sig='顶部区域'; sigColor='var(--red)'; sigSub='利差跌破下轨，股票性价比极低'; }
+  else { sig='中性区间'; sigColor='var(--orange)'; sigSub='利差处于通道之内'; }
+  $('kSig').textContent = sig; $('kSig').style.color = sigColor; $('kSigSub').textContent = sigSub;
+
+  if(TAB===0){ renderGauge(curSpread, pct, sig, sigColor, last); return; }
+  $('gaugeWrap').style.display='none';
+  $('chart').style.display='block';
+  $('chart').style.height='600px';
+  setTimeout(()=>chart.resize(), 30);
+
+  // 事件标注（吸附到最近日期）
+  const eventPts = EVENTS.map(ev=>{
+    let best=null, bd=1e18;
+    rows.forEach((r,i)=>{ const dd = Math.abs(new Date(r.d)-new Date(ev[0])); if(dd<bd){bd=dd;best=i;} });
+    if(bd > 40*864e5) return null;
+    return { coord:[rows[best].d, +spread[best].toFixed(3)], name:ev[1], type:ev[2], idx:best };
+  }).filter(Boolean);
+
+  const idxPairs = rows.map(r=>[r.d, r.close]);
+  const spreadPairs = rows.map((r,i)=>[r.d, +spread[i].toFixed(3)]);
+  const curPair = spreadPairs[n-1];
+  const recentStart = rows[Math.max(0, n-Math.round(n*0.18))].d;
+
+  const base = {
+    animation:false,
+    grid:{left:64,right:70,top:56,bottom:44},
+    legend:{top:6, type:'scroll'},
+    tooltip:{trigger:'axis', axisPointer:{type:'cross'}, valueFormatter:v=>v==null?'—':(+v).toFixed(2)},
+    xAxis:{type:'time', axisLabel:{color:'#8a919c'}},
+    yAxis:[
+      {type:'value', name:'利差(百分点)', scale:true, axisLabel:{formatter:v=>v.toFixed(1), color:'#2f6fd0'}, splitLine:{lineStyle:{type:'dashed', color:'#ebedf0'}}},
+      {type:'value', name:'指数', scale:true, axisLabel:{color:'#c0392b'}, splitLine:{show:false}}
+    ],
+    dataZoom:[{type:'inside'},{type:'slider',height:18,bottom:8}]
+  };
+
+  const idxSeries = { name:'沪深300指数', type:'line', yAxisIndex:1, data:idxPairs, showSymbol:false, lineStyle:{width:1.6, color:'#c0392b'}, itemStyle:{color:'#c0392b'}, z:2 };
+  const spreadSeries = (extra={}) => Object.assign({
+    name:'股债利差', type:'line', data:spreadPairs, showSymbol:false,
+    lineStyle:{width:2, color:'#2f6fd0'}, itemStyle:{color:'#2f6fd0'}, z:3
+  }, extra);
+
+  let option;
+  if(TAB === 1){
+    option = Object.assign({}, base, {
+      series:[
+        spreadSeries({
+          markArea:{ silent:true, data:[
+            [{ name:'底部区', xAxis:recentStart, yAxis:6, itemStyle:{color:'rgba(47,111,208,0.07)'}, label:{color:'#2f6fd0', fontSize:13, position:'insideTop'}},{ xAxis:rows[n-1].d, yAxis:Math.max(...spread)+1 }],
+            [{ name:'顶部区', xAxis:recentStart, yAxis:Math.min(...spread)-1, itemStyle:{color:'rgba(192,57,43,0.07)'}, label:{color:'#c0392b', fontSize:13, position:'insideBottom'}},{ xAxis:rows[n-1].d, yAxis:2.5 }]
+          ]},
+          markPoint:{ symbolSize:9, data:[
+            ...eventPts.map(p=>({ coord:p.coord, name:p.name,
+              itemStyle:{color: p.type==='top' ? '#c0392b' : '#2f6fd0'},
+              label:{formatter:p.name, fontSize:11, color:'#5a626e', offset:[0,-14]}})),
+            { coord:curPair, name:'当前', itemStyle:{color:'#e6a23c'}, symbolSize:11,
+              label:{formatter:'当前 '+curSpread.toFixed(2), fontSize:12, color:'#b8860b', offset:[0,-16]} }
+          ]}
+        }),
+        idxSeries
+      ]
+    });
+  }else{
+    option = Object.assign({}, base, {
+      series:[
+        spreadSeries({ lineStyle:{width:1.8} }),
+        { name:'股债利差均线', type:'line', data:seriesPairs(RAW.dates, ma), showSymbol:false, lineStyle:{width:1.6, color:'#e6a23c'}, itemStyle:{color:'#e6a23c'}, z:2 },
+        { name:'利差+2σ上轨', type:'line', data:seriesPairs(RAW.dates, up), showSymbol:false, lineStyle:{width:1.6, color:'#67c23a'}, itemStyle:{color:'#67c23a'}, z:2 },
+        { name:'利差-2σ下轨', type:'line', data:seriesPairs(RAW.dates, lo), showSymbol:false, lineStyle:{width:1.6, color:'#8e44ad'}, itemStyle:{color:'#8e44ad'}, z:2 },
+        idxSeries
+      ]
+    });
+  }
+  option.legend = Object.assign({}, option.legend, { data: option.series.map(x=>x.name) });
+  chart.setOption(option, true);
+}
+
+/* ================= 流程 ================= */
+let TAB = 0;
+document.querySelectorAll('.tab').forEach(t=>{
+  t.onclick = ()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active'); TAB = +t.dataset.v; render();
+    setTimeout(()=>{ chart.resize(); gaugeChart.resize(); }, 60);
+  };
+});
+window.addEventListener('resize', ()=>chart.resize());
+
+function setStatus(txt, ok){
+  $('status').textContent = txt;
+  const b = $('badge');
+  if(ok){ b.textContent='● 官方日频数据'; b.className='badge ok'; }
+  else { b.textContent='● 内置月度估算数据'; b.className='badge'; }
+}
+
+async function loadAll(){
+  $('refreshBtn').disabled = true;
+  setStatus('正在尝试连接实时数据源（中证指数 / 中国货币网 / 蛋卷 / 腾讯行情）…', false);
+  let cs=null, cm=null, dj=null, tn=null; const logs=[];
+  const tryS = async (name, fn, tag) => {
+    try{ const r = await fn(); logs.push(tag+' ✓'); return r; }
+    catch(e){ logs.push(tag+' ✗('+(e&&e.message||e)+')'); return null; }
+  };
+  [cs, cm, dj, tn] = await Promise.all([
+    tryS('cs', srcCsindex, '中证指数官网'),
+    tryS('cm', srcChinamoney, '中国货币网'),
+    tryS('dj', srcDanjuan, '蛋卷估值'),
+    tryS('tn', srcTencentDaily, '腾讯日K')
+  ]);
+  // 实时快照（价+PE），尽力而为
+  try{
+    const v = await fetchScriptVar('https://qt.gtimg.cn/q=sh000300','v_sh000300');
+    if(v && v.length>40){
+      const f = v.split('~');
+      const px = toNum(f[3]);
+      let pe = null;
+      for(let i=38;i<50 && pe==null;i++){ const x=toNum(f[i]); if(x>4 && x<80) pe=x; }
+      if(px && pe) window._rt = {d: todayStr(), px, pe};
+    }
+  }catch(e){}
+
+  const useCs = !!cs, useT = !!tn;
+  const closeSrc = cs || tn;
+  if(!closeSrc){
+    RAW.dates = EMBED.monthly.map(r=>r[0]);
+    RAW.close = EMBED.monthly.map(r=>r[1]);
+    RAW.pe = EMBED.monthly.map(r=>r[2]);
+    RAW.yld = EMBED.monthly.map(r=>r[3]);
+    DAILY_MODE = false;
+    setStatus('实时数据源均不可用，已使用内置月度数据（老月份PE/收益率为锚点估算，仅供参考）。日志：'+logs.join(' | '), false);
+  }else{
+    let rows;
+    if(cs && cm){ rows = buildSeries(cs, tn, dj, cm); }
+    else{
+      const closeArr = cs || tn;
+      const peMap = {}, yMap = {};
+      (dj||[]).forEach(r=>peMap[r[0]]=r[1]);
+      EMBED.monthly.forEach(r=>{ if(!peMap[r[0]]) peMap[r[0]]=r[2]; if(!yMap[r[0]]) yMap[r[0]]=r[3]; });
+      (cm||[]).forEach(r=>yMap[r[0]]=r[1]);
+      rows = closeArr.map(r=>{ const d=r[0];
+        let y = yMap[d]; if(y==null){ // 找最近早前月份
+          const ks = Object.keys(yMap).filter(k=>k<=d); y = ks.length? yMap[ks[ks.length-1]] : null; }
+        return {d, close:r[1], pe: peMap[d]||null, yld:y};
+      }).filter(r=>r.pe&&r.yld);
+      // PE缺口用前向填充
+      let lp=null; rows.forEach(r=>{ if(r.pe) lp=r.pe; else r.pe=lp; });
+    }
+    RAW = toDaily(rows);
+    DAILY_MODE = RAW.dates.length > 1000;
+    if(window._rt && window._rt.d >= RAW.dates[RAW.dates.length-1]){
+      const i = RAW.dates.length-1;
+      if(window._rt.d === RAW.dates[i] || new Date(window._rt.d) > new Date(RAW.dates[i])){
+        RAW.dates.push(window._rt.d); RAW.close.push(window._rt.px); RAW.pe.push(window._rt.pe); RAW.yld.push(RAW.yld[i]);
+      } else { RAW.close[i]=window._rt.px; RAW.pe[i]=window._rt.pe; }
+    }
+    setStatus('数据更新完成 ['+new Date().toLocaleString('zh-CN')+']。日志：'+logs.join(' | ')+ (DAILY_MODE?'（日频模式）':'（非完整日频，部分日期使用估算/填充）'), useCs);
+  }
+  render();
+  $('refreshBtn').disabled = false;
+}
+$('refreshBtn').onclick = loadAll;
+loadAll();
+</script>
+</body>
+</html>
