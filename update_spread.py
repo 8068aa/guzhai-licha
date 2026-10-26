@@ -97,6 +97,11 @@ def main():
     if len(rows) < 1000:
         raise RuntimeError(f"merged too few: {len(rows)}")
     asof = rows[-1][0]
+    # 债券当日数据已发布而沪深300仍停在前一日，说明指数接口尚未更新。
+    # 不能把旧数据当作成功结果写出，交给 GitHub Actions 稍后重试。
+    today_cn = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).date().isoformat()
+    if today_cn in yld and today_cn not in cs:
+        raise RuntimeError(f"沪深300尚未发布 {today_cn} 数据，当前仅到 {max(cs)}")
     spread = round(100 / rows[-1][2] - rows[-1][3], 2)
     with open(OUT, "w", encoding="utf-8") as f:
         f.write('window.BAKED={"asof":"%s","rows":%s};\n'

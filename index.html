@@ -424,8 +424,30 @@ function setStatus(txt, ok){
   else { b.textContent='● 内置月度估算数据'; b.className='badge'; }
 }
 
+async function reloadBaked(){
+  // 加时间戳绕过浏览器/CDN缓存；首次打开和点击“刷新数据”都会重新获取。
+  window.BAKED = undefined;
+  await new Promise((resolve, reject) => {
+    const old = document.querySelector('script[data-baked]');
+    if(old) old.remove();
+    const script = document.createElement('script');
+    script.dataset.baked = 'true';
+    script.src = 'data.js?t=' + Date.now();
+    script.onload = resolve;
+    script.onerror = () => reject(new Error('data.js 加载失败'));
+    document.head.appendChild(script);
+  });
+}
+
 async function loadAll(){
   $('refreshBtn').disabled = true;
+  try {
+    await reloadBaked();
+  } catch(error) {
+    setStatus('最新数据加载失败，请稍后重试：'+error.message, false);
+    $('refreshBtn').disabled = false;
+    return;
+  }
   // 优先使用仓库内每日自动任务烘焙的数据（data.js），不受浏览器跨域限制
   if(window.BAKED && window.BAKED.rows && window.BAKED.rows.length > 1000){
     const rows = window.BAKED.rows.map(r=>({d:r[0], close:r[1], pe:r[2], yld:r[3]}));
